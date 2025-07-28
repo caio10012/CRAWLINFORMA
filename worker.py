@@ -6,29 +6,59 @@ import redis
 import requests
 from bs4 import BeautifulSoup
 import database
+from datetime import datetime
 
 # Configuração de limite
-MAX_NOTICIAS = 20  # Limite máximo de notícias a serem coletadas
+MAX_NOTICIAS = 50  # Limite máximo de notícias a serem coletadas
 
 def is_noticia(url):
-    """Verifica se a URL é de uma notícia real"""
-    padrao_noticia = re.compile(r'\.globo\.com/[^/]+/noticia/')
-    return bool(padrao_noticia.search(url))
+    """Verifica se a URL é de uma notícia real com padrão rigoroso"""
+    # Padrão: deve conter /noticia/aaaa/mm/dd/
+    padrao_noticia = re.compile(
+        r'https?://[^/]+\.globo\.com/[^/]+/noticia/\d{4}/\d{2}/\d{2}/'
+    )
+    
+    # Lista negra de seções não-noticiosas
+    secoes_proibidas = [
+        'sobre',
+        'equipe',
+        'redacao',
+        'institucional',
+        'contato',
+        'termos-de-uso',
+        'vc-no-g1',
+        'redacao-globoreporter',
+        'equipe-bom-dia-brasil',
+        'conheca-a-historia',
+        'nossa-equipe',
+        'siga-a-globonews'
+    ]
+    
+    # Verifica o padrão da notícia
+    if not padrao_noticia.search(url):
+        return False
+        
+    # Verifica se não contém seções proibidas
+    if any(sec in url.lower() for sec in secoes_proibidas):
+        return False
+        
+    return True
 
 def extrair_links_secao(soup, base_url="https://g1.globo.com"):
     """Extrai links de notícias de uma página de seção"""
     links = []
     for card in soup.select('a.feed-post-link'):
         href = card.get('href')
-        if href and is_noticia(href):
+        if href:
             # Garante URL absoluta
             if not href.startswith('http'):
                 href = base_url + href
-            links.append(href)
+            if is_noticia(href):
+                links.append(href)
     return links
 
 def extrair_conteudo(soup):
-    """Extrai título, resumo e texto da notícia"""
+    """Extrai título, resumo, texto e data de publicação da notícia"""
     # Título principal
     titulo_tag = soup.select_one('h1.content-head__title')
     titulo = titulo_tag.get_text().strip() if titulo_tag else ""
@@ -37,6 +67,13 @@ def extrair_conteudo(soup):
     resumo_tag = soup.select_one('h2.content-head__subtitle')
     resumo = resumo_tag.get_text().strip() if resumo_tag else ""
     
+    # Data de publicação
+    data_tag = soup.select_one('time[itemprop="datePublished"]')
+    if data_tag:
+        data_publicacao = data_tag.get('datetime') or data_tag.text.strip()
+    else:
+        data_publicacao = ""
+
     # Corpo da notícia
     corpo = []
     for p in soup.select('article p.content-text__container'):
@@ -46,7 +83,12 @@ def extrair_conteudo(soup):
     
     texto_completo = "\n\n".join(corpo)
     
-    return titulo, resumo, texto_completo
+    # Verifica se o conteúdo tem pelo menos 100 palavras
+    palavras = texto_completo.split()
+    if len(palavras) < 100:
+        return "", "", "", ""
+    
+    return titulo, resumo, texto_completo, data_publicacao
 
 def process_url(r, url, contador):
     # Verifica se atingiu o limite
@@ -90,16 +132,16 @@ def process_url(r, url, contador):
         r.sadd("processed_urls", url)
         return True
     
-    titulo, resumo, texto = extrair_conteudo(soup)
+    titulo, resumo, texto, data_publicacao = extrair_conteudo(soup)
     
     if not texto:
-        print(f"Conteúdo não encontrado em: {url}")
+        print(f"Conteúdo não encontrado ou insuficiente em: {url}")
         r.sadd("processed_urls", url)
         return True
     
     # Combina título, resumo e texto
     conteudo_completo = f"{titulo}\n\n{resumo}\n\n{texto}"
-    database.salvar_noticia(url, titulo, conteudo_completo)
+    database.salvar_noticia(url, titulo, conteudo_completo, data_publicacao)
     print(f"Notícia salva: {titulo[:60]}...")
     
     # Atualiza contador

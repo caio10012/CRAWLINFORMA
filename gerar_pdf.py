@@ -1,31 +1,74 @@
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY, TA_RIGHT  # Adicionei TA_RIGHT aqui
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib import colors
 import sqlite3
 from datetime import datetime, timedelta
+
+def formatar_data(data_str):
+    """Tenta converter várias formatos de data para objeto datetime"""
+    formatos = [
+        '%Y-%m-%dT%H:%M:%S.%fZ',  # Formato ISO
+        '%Y-%m-%dT%H:%M:%SZ',      # Formato ISO sem milissegundos
+        '%d/%m/%Y %Hh%M',           # Formato brasileiro
+        '%Y-%m-%d %H:%M:%S',        # Formato SQL
+        '%d/%m/%Y'                  # Apenas data
+    ]
+    
+    for fmt in formatos:
+        try:
+            return datetime.strptime(data_str, fmt)
+        except ValueError:
+            continue
+    
+    # Se nenhum formato funcionar, retorna data atual como fallback
+    return datetime.now()
 
 def gerar_jornal():
     # Conecta ao banco
     conn = sqlite3.connect('noticias.db')
     cursor = conn.cursor()
     
-    # Busca notícias dos últimos 7 dias
-    uma_semana_atras = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-    cursor.execute("""
-        SELECT titulo, texto, data_coleta 
-        FROM noticias 
-        WHERE data_coleta >= ?
-        ORDER BY data_coleta DESC
-    """, (uma_semana_atras,))
+    # Busca notícias dos últimos 3 dias (em relação à data de publicação)
+    tres_dias_atras = (datetime.now() - timedelta(days=3))
     
-    noticias = cursor.fetchall()
+    # Seleciona as notícias com data_publicacao nos últimos 3 dias
+    cursor.execute("""
+        SELECT titulo, texto, data_publicacao 
+        FROM noticias 
+        ORDER BY data_publicacao DESC
+    """)
+    
+    noticias = []
+    for titulo, texto, data_publicacao in cursor.fetchall():
+        # Filtra notícias com menos de 100 palavras
+        if len(texto.split()) < 100:
+            continue
+            
+        # Tenta converter a data para objeto datetime
+        try:
+            data_obj = formatar_data(data_publicacao)
+            
+            # Filtra notícias muito antigas
+            if data_obj < tres_dias_atras:
+                continue
+                
+            data_formatada = data_obj.strftime('%d/%m %H:%M')
+        except Exception as e:
+            print(f"Erro ao formatar data '{data_publicacao}': {e}")
+            data_formatada = data_publicacao
+        
+        noticias.append((titulo, texto, data_formatada))
+    
     conn.close()
 
     if not noticias:
         print("Nenhuma notícia recente encontrada!")
         return
+
+    # Ordena notícias pela data mais recente
+    noticias.sort(key=lambda x: x[2], reverse=True)
 
     # Configura PDF
     doc = SimpleDocTemplate("jornal_semanal.pdf", pagesize=A4)
@@ -71,7 +114,7 @@ def gerar_jornal():
         name='Data',
         fontSize=9,
         textColor=colors.grey,
-        alignment=TA_RIGHT,  # Corrigido com TA_RIGHT importado
+        alignment=TA_RIGHT,
         spaceAfter=5
     ))
 
@@ -94,34 +137,22 @@ def gerar_jornal():
     
     # Classifica as notícias
     for titulo, texto, data in noticias:
-        # Corrige o formato da data
-        try:
-            # Tenta converter de string para datetime
-            if isinstance(data, str):
-                try:
-                    data_obj = datetime.strptime(data, '%Y-%m-%d %H:%M:%S.%f')
-                except ValueError:
-                    data_obj = datetime.strptime(data, '%Y-%m-%d %H:%M:%S')
-                data_formatada = data_obj.strftime('%d/%m %H:%M')
-            else:
-                data_formatada = data.strftime('%d/%m %H:%M')
-        except Exception:
-            data_formatada = "Data desconhecida"
+        titulo_lower = titulo.lower()
         
-        if "politica" in titulo.lower():
-            secoes["Política"].append((titulo, texto, data_formatada))
-        elif "economia" in titulo.lower():
-            secoes["Economia"].append((titulo, texto, data_formatada))
-        elif "mundo" in titulo.lower():
-            secoes["Mundo"].append((titulo, texto, data_formatada))
-        elif "tecnologia" in titulo.lower():
-            secoes["Tecnologia"].append((titulo, texto, data_formatada))
-        elif "ciência" in titulo.lower() or "saúde" in titulo.lower() or "saude" in titulo.lower():
-            secoes["Ciência e Saúde"].append((titulo, texto, data_formatada))
-        elif "educação" in titulo.lower() or "educacao" in titulo.lower():
-            secoes["Educação"].append((titulo, texto, data_formatada))
+        if "politica" in titulo_lower or "governo" in titulo_lower:
+            secoes["Política"].append((titulo, texto, data))
+        elif "economia" in titulo_lower or "econômica" in titulo_lower or "financeiro" in titulo_lower:
+            secoes["Economia"].append((titulo, texto, data))
+        elif "mundo" in titulo_lower or "internacional" in titulo_lower:
+            secoes["Mundo"].append((titulo, texto, data))
+        elif "tecnologia" in titulo_lower or "digital" in titulo_lower:
+            secoes["Tecnologia"].append((titulo, texto, data))
+        elif "ciência" in titulo_lower or "saúde" in titulo_lower or "saude" in titulo_lower or "médic" in titulo_lower:
+            secoes["Ciência e Saúde"].append((titulo, texto, data))
+        elif "educação" in titulo_lower or "educacao" in titulo_lower or "escola" in titulo_lower:
+            secoes["Educação"].append((titulo, texto, data))
         else:
-            secoes["Outras"].append((titulo, texto, data_formatada))
+            secoes["Outras"].append((titulo, texto, data))
     
     # Adiciona conteúdo ao PDF
     for secao, conteudo in secoes.items():
