@@ -4,16 +4,19 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib import colors
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 
 def formatar_data(data_str):
-    """Tenta converter várias formatos de data para objeto datetime"""
+    """Tenta converter vários formatos de data para objeto datetime"""
+    if not data_str:
+        return None
+        
     formatos = [
-        '%Y-%m-%dT%H:%M:%S.%fZ',  # Formato ISO
-        '%Y-%m-%dT%H:%M:%SZ',      # Formato ISO sem milissegundos
-        '%d/%m/%Y %Hh%M',           # Formato brasileiro
+        '%Y-%m-%dT%H:%M:%S',       # Formato ISO sem milissegundos
+        '%Y-%m-%dT%H:%M:%S.%f',    # Formato ISO com milissegundos
         '%Y-%m-%d %H:%M:%S',        # Formato SQL
-        '%d/%m/%Y'                  # Apenas data
+        '%Y-%m-%d',                 # Apenas data
+        '%d/%m/%Y %Hh%M'            # Formato brasileiro
     ]
     
     for fmt in formatos:
@@ -22,18 +25,14 @@ def formatar_data(data_str):
         except ValueError:
             continue
     
-    # Se nenhum formato funcionar, retorna data atual como fallback
-    return datetime.now()
+    return None
 
 def gerar_jornal():
     # Conecta ao banco
     conn = sqlite3.connect('noticias.db')
     cursor = conn.cursor()
     
-    # Busca notícias dos últimos 3 dias (em relação à data de publicação)
-    tres_dias_atras = (datetime.now() - timedelta(days=3))
-    
-    # Seleciona as notícias com data_publicacao nos últimos 3 dias
+    # Busca todas as notícias
     cursor.execute("""
         SELECT titulo, texto, data_publicacao 
         FROM noticias 
@@ -42,33 +41,30 @@ def gerar_jornal():
     
     noticias = []
     for titulo, texto, data_publicacao in cursor.fetchall():
-        # Filtra notícias com menos de 100 palavras
-        if len(texto.split()) < 100:
-            continue
-            
-        # Tenta converter a data para objeto datetime
-        try:
-            data_obj = formatar_data(data_publicacao)
-            
-            # Filtra notícias muito antigas
-            if data_obj < tres_dias_atras:
-                continue
-                
-            data_formatada = data_obj.strftime('%d/%m %H:%M')
-        except Exception as e:
-            print(f"Erro ao formatar data '{data_publicacao}': {e}")
-            data_formatada = data_publicacao
+        # Formata a data
+        data_obj = None
         
-        noticias.append((titulo, texto, data_formatada))
+        if data_publicacao:
+            if isinstance(data_publicacao, str):
+                data_obj = formatar_data(data_publicacao)
+            elif isinstance(data_publicacao, datetime):
+                data_obj = data_publicacao
+        
+        # Formata para exibição
+        if data_obj:
+            data_formatada = data_obj.strftime('%d/%m/%Y')
+        else:
+            data_formatada = "Data desconhecida"
+        
+        # Filtra notícias com conteúdo suficiente
+        if len(texto.split()) >= 100:
+            noticias.append((titulo, texto, data_formatada))
     
     conn.close()
 
     if not noticias:
-        print("Nenhuma notícia recente encontrada!")
+        print("Nenhuma notícia encontrada no banco de dados!")
         return
-
-    # Ordena notícias pela data mais recente
-    noticias.sort(key=lambda x: x[2], reverse=True)
 
     # Configura PDF
     doc = SimpleDocTemplate("jornal_semanal.pdf", pagesize=A4)
@@ -139,17 +135,17 @@ def gerar_jornal():
     for titulo, texto, data in noticias:
         titulo_lower = titulo.lower()
         
-        if "politica" in titulo_lower or "governo" in titulo_lower:
+        if "politica" in titulo_lower or "governo" in titulo_lower or "presidente" in titulo_lower:
             secoes["Política"].append((titulo, texto, data))
-        elif "economia" in titulo_lower or "econômica" in titulo_lower or "financeiro" in titulo_lower:
+        elif "economia" in titulo_lower or "financeiro" in titulo_lower or "mercado" in titulo_lower or "dólar" in titulo_lower:
             secoes["Economia"].append((titulo, texto, data))
-        elif "mundo" in titulo_lower or "internacional" in titulo_lower:
+        elif "mundo" in titulo_lower or "internacional" in titulo_lower or "país" in titulo_lower or "guerra" in titulo_lower:
             secoes["Mundo"].append((titulo, texto, data))
-        elif "tecnologia" in titulo_lower or "digital" in titulo_lower:
+        elif "tecnologia" in titulo_lower or "digital" in titulo_lower or "app" in titulo_lower or "celular" in titulo_lower:
             secoes["Tecnologia"].append((titulo, texto, data))
-        elif "ciência" in titulo_lower or "saúde" in titulo_lower or "saude" in titulo_lower or "médic" in titulo_lower:
+        elif "ciência" in titulo_lower or "saúde" in titulo_lower or "medic" in titulo_lower or "hospital" in titulo_lower:
             secoes["Ciência e Saúde"].append((titulo, texto, data))
-        elif "educação" in titulo_lower or "educacao" in titulo_lower or "escola" in titulo_lower:
+        elif "educação" in titulo_lower or "educacao" in titulo_lower or "escola" in titulo_lower or "universidade" in titulo_lower:
             secoes["Educação"].append((titulo, texto, data))
         else:
             secoes["Outras"].append((titulo, texto, data))
@@ -165,16 +161,14 @@ def gerar_jornal():
                 story.append(Paragraph(f"<font size=9 color=grey>{data}</font>", styles['Normal']))
                 story.append(Spacer(1, 5))
                 
-                # Limita o texto para 500 caracteres + leia mais
                 texto_resumido = texto[:500] + ("..." if len(texto) > 500 else "")
                 story.append(Paragraph(texto_resumido, styles['CorpoNoticia']))
                 story.append(Spacer(1, 15))
             
             story.append(PageBreak())
     
-    # Gera o PDF
     doc.build(story)
-    print(f"Jornal semanal gerado com {len(noticias)} notícias!")
+    print(f"Jornal gerado com {len(noticias)} notícias!")
 
 if __name__ == "__main__":
     gerar_jornal()
