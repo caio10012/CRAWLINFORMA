@@ -2,7 +2,6 @@
 import os
 import redis
 
-# URLs de seções com listas de notícias
 SEEDS = [
     "https://g1.globo.com/ultimas-noticias/",
     "https://g1.globo.com/politica/",
@@ -17,7 +16,6 @@ def main():
     redis_host = os.getenv("REDIS_HOST", "localhost")
     r = redis.Redis(host=redis_host, port=6379, decode_responses=True)
     
-    # Limpa filas anteriores
     r.delete("task_queue")
     r.delete("processed_urls")
     
