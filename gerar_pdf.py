@@ -27,6 +27,29 @@ def formatar_data(data_str):
     
     return None
 
+def truncar_texto(texto, limite_caracteres=500):
+    """Trunca o texto de forma inteligente, respeitando a estrutura"""
+    if len(texto) <= limite_caracteres:
+        return texto
+    
+    # Tenta encontrar o último ponto final antes do limite
+    ultimo_ponto = texto.rfind('.', 0, limite_caracteres)
+    
+    # Se não encontrar ponto, tenta encontrar a última vírgula
+    if ultimo_ponto == -1:
+        ultimo_ponto = texto.rfind(',', 0, limite_caracteres)
+    
+    # Se não encontrar vírgula, tenta encontrar o último espaço
+    if ultimo_ponto == -1:
+        ultimo_ponto = texto.rfind(' ', 0, limite_caracteres)
+    
+    # Se encontrou um ponto de corte natural
+    if ultimo_ponto > limite_caracteres * 0.8:  # Pelo menos 80% do limite
+        return texto[:ultimo_ponto + 1] + ".."
+    
+    # Fallback: corta no limite e adiciona reticências
+    return texto[:limite_caracteres] + ".."
+
 def gerar_jornal():
     # Conecta ao banco
     conn = sqlite3.connect('noticias.db')
@@ -161,7 +184,8 @@ def gerar_jornal():
                 story.append(Paragraph(f"<font size=9 color=grey>{data}</font>", styles['Normal']))
                 story.append(Spacer(1, 5))
                 
-                texto_resumido = texto[:500] + ("..." if len(texto) > 500 else "")
+                # Trunca o texto de forma inteligente
+                texto_resumido = truncar_texto(texto)
                 story.append(Paragraph(texto_resumido, styles['CorpoNoticia']))
                 story.append(Spacer(1, 15))
             
