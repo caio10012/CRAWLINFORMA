@@ -1,13 +1,31 @@
+#!/usr/bin/env python3
+import os
 import redis
 
-r = redis.Redis(host='localhost', port=6379, db=0)
-
-urls = [
-    "https://g1.globo.com/",
-    "https://www.bbc.com/portuguese",
-    "https://www.cnnbrasil.com.br/"
+# URLs de seções com listas de notícias
+SEEDS = [
+    "https://g1.globo.com/ultimas-noticias/",
+    "https://g1.globo.com/politica/",
+    "https://g1.globo.com/economia/",
+    "https://g1.globo.com/mundo/",
+    "https://g1.globo.com/tecnologia/",
+    "https://g1.globo.com/ciencia-e-saude/",
+    "https://g1.globo.com/educacao/"
 ]
 
-for url in urls:
-    r.lpush("fila_urls", url)
-    print(f"URL enviada para a fila: {url}")
+def main():
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    r = redis.Redis(host=redis_host, port=6379, decode_responses=True)
+    
+    # Limpa filas anteriores
+    r.delete("task_queue")
+    r.delete("processed_urls")
+    
+    for url in SEEDS:
+        r.rpush("task_queue", url)
+        print(f"Seção adicionada: {url}")
+    
+    print(f"Producer finalizado. {len(SEEDS)} seções enfileiradas.")
+
+if __name__ == "__main__":
+    main()
